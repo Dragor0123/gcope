@@ -1,0 +1,4 @@
+-------------------------------------------------
+finetuneFT on All, Target Dataset: cornell, acc: 0.3230 ± 0.0795
+finetuneFT on All, Target Dataset: cornell, auroc: 0.5706 ± 0.0714
+finetuneFT on All, Target Dataset: cornell, f1: 0.1882 ± 0.0392

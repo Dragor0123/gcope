@@ -1,0 +1,4 @@
+-------------------------------------------------
+finetuneFT on All, Target Dataset: squirrel, acc: 0.2063 ± 0.0164
+finetuneFT on All, Target Dataset: squirrel, auroc: 0.5003 ± 0.0151
+finetuneFT on All, Target Dataset: squirrel, f1: 0.1358 ± 0.0302
