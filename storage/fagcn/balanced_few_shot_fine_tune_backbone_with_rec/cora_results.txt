@@ -1,0 +1,8 @@
+-------------------------------------------------
+gpfFT on All, Target Dataset: cora, acc: 0.3942 ± 0.0156
+gpfFT on All, Target Dataset: cora, auroc: 0.7799 ± 0.0170
+gpfFT on All, Target Dataset: cora, f1: 0.4136 ± 0.0223
+-------------------------------------------------
+gpfFT on All, Target Dataset: cora, acc: 0.4070 ± 0.0291
+gpfFT on All, Target Dataset: cora, auroc: 0.7829 ± 0.0194
+gpfFT on All, Target Dataset: cora, f1: 0.4211 ± 0.0282

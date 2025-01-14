@@ -100,8 +100,8 @@ Section('pretrain', 'Pretraining Configs').enable_if(
 Section('adapt', 'Adaptation Configs').enable_if(
     lambda cfg: cfg['general.func'] == 'adapt'
 ).params(
-    repeat_times = Param(int, default=10),
-    method = Param(OneOf(['finetune', 'prog']), default='finetune'),
+    repeat_times = Param(int, default=5), #10
+    method = Param(OneOf(['finetune', 'prog', 'gpf']), default='finetune'),
     pretrained_file = Param(File(), required=True,default='storage/tmp/pretrained_model.pt'),
     epoch = Param(int, default=100),
     batch_size = Param(int, default=10),
@@ -133,6 +133,20 @@ Section('adapt.finetune', 'Finetune Configs').enable_if(
     saliency_tuning = Param(BoolAsInt(), default=False),
     learning_rate = Param(float, default=1e-4),
     weight_decay = Param(float, default=1e-5),
+)
+
+Section('adapt.gpf', 'Gpf Configs').enable_if(
+    lambda cfg: cfg['adapt.method'] == 'gpf'
+).params(
+    prompt_lr = Param(float, default=1e-4),
+    prompt_weight_decay = Param(float, default=1e-5),
+    prompt_basis_num = Param(int, default = 10),
+    ans_lr = Param(float, default=1e-2),    
+    ans_weight_decay = Param(float, default=1e-5),
+    epoch = Param(int, default = 1),
+    backbone_tuning = Param(BoolAsInt(), default=False),
+    saliency_tuning = Param(BoolAsInt(), default=False),    
+    edge_attr_dim = Param(int, default = 0),
 )
 
 Section('ete', 'End-to-End Training Configs').enable_if(

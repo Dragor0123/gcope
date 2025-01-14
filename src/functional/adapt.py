@@ -1,7 +1,31 @@
 import copy
 from fastargs.decorators import param
+from fastargs import Param
 import torch
 
+import torch.nn as nn
+import torch.nn.functional as F
+from torch import Tensor
+from torch_geometric.nn.inits import glorot
+
+
+class GPF(nn.Module):
+    def __init__(self, in_channels: int, p_num: int):
+        super(GPF, self).__init__()
+        self.p_list = nn.Parameter(torch.Tensor(p_num, in_channels))
+        self.a = nn.Linear(in_channels, p_num)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        glorot(self.p_list)
+        self.a.reset_parameters()
+
+    def add(self, x: Tensor):
+        score = self.a(x)
+        weight = F.softmax(score, dim=1)
+        p = weight.mm(self.p_list)
+
+        return x + p
 
 @param('data.name', 'dataset')
 @param('adapt.batch_size')
@@ -65,7 +89,9 @@ def run(
             test_node_num = sum([g.num_nodes for g in datasets['test']])
             prompt_node_num = int((train_node_num + val_node_num + test_node_num) / total_graph)
             prompt_model = get_prompt_model(num_features=datasets['train'][0].x.size(-1), prompt_node_num=prompt_node_num)
-            results = prog(loaders, model, prompt_model, dataset)        
+            results = prog(loaders, model, prompt_model, dataset)
+        elif method == 'gpf':
+            results = gpf(loaders=loaders, model=model, dataset=dataset, backbone_tuning=False, saliency_tuning = False, prompt_lr =1e-4, prompt_weight_decay=1e-5, prompt_basis_num=5, ans_lr=1e-2, ans_weight_decay=1e-5)
         else:
             raise NotImplementedError(f'Unknown method: {method}')
         
@@ -360,3 +386,176 @@ def prog(
         'f1': f1_metric.compute().item(),
         'model': model.state_dict(),
     }
+
+@param('adapt.epoch')
+@param('adapt.gpf.prompt_lr')
+@param('adapt.gpf.prompt_weight_decay')
+@param('adapt.gpf.prompt_basis_num')
+@param('adapt.gpf.ans_lr')
+@param('adapt.gpf.ans_weight_decay')
+@param('adapt.gpf.backbone_tuning')
+@param('adapt.gpf.saliency_tuning')
+def gpf(
+        loaders,
+        model,
+        dataset,
+        epoch,
+        backbone_tuning,
+        saliency_tuning,
+        prompt_lr,
+        prompt_weight_decay,
+        prompt_basis_num,
+        ans_lr,
+        ans_weight_decay,
+):
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    model.backbone.to(device)
+    model.answering.to(device)
+
+
+    model.backbone.requires_grad_(backbone_tuning)
+    model.saliency.requires_grad_(saliency_tuning)
+
+    # GPF Prompt 초기화
+    gpf_prompt = GPF(in_channels=loaders['train'].dataset[0].x.size(-1), p_num=prompt_basis_num).to(device)
+
+    opi_pg = torch.optim.Adam(
+        gpf_prompt.parameters(),
+        lr=prompt_lr,
+        weight_decay=prompt_weight_decay,
+    )
+
+    opi_answer = torch.optim.Adam(
+        model.answering.parameters(),
+        lr=ans_lr,
+        weight_decay=ans_weight_decay,
+    )
+
+    from torchmetrics import MeanMetric, Accuracy, F1Score, AUROC
+    from tqdm import tqdm
+    from copy import deepcopy
+
+    loss_metric = MeanMetric().to(device)
+    acc_metric = Accuracy(task='multiclass', num_classes=model.answering.num_class).to(device)
+    f1_metric = F1Score(task='multiclass', num_classes=model.answering.num_class, average='macro').to(device)
+    auroc_metric = AUROC(task="multiclass", num_classes=model.answering.num_class).to(device)
+
+    # load prompting data
+
+    from torch_geometric.loader import DataLoader
+
+    best_acc = 0.
+    best_prompt_model = None
+    best_answering = None
+
+    for e in range(epoch):
+
+        loss_metric.reset()
+        acc_metric.reset()
+        f1_metric.reset()
+        auroc_metric.reset()
+
+        print(("{}/{} frozen gnn | *tune prompt and tune answering function...".format(e, epoch)))
+        gpf_prompt.train()
+        model.backbone.eval()
+        model.answering.train()
+
+        from tqdm import tqdm
+
+        device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
+        running_loss = 0.
+
+        ans_pbar = tqdm(loaders['train'], total=len(loaders['train']), ncols=100,
+                        desc=f'Epoch {e} / Total Epoch {epoch} Training, Loss: inf')
+
+        for batch_id, train_batch in enumerate(ans_pbar):  # bar2
+
+            train_batch = train_batch.to(device)
+            train_batch.x = gpf_prompt.add(train_batch.x)
+            graph_emb = model.backbone(train_batch)
+            pred = model.answering(graph_emb)
+
+            train_loss = torch.nn.functional.cross_entropy(pred, train_batch.y)
+
+            opi_answer.zero_grad()
+            opi_pg.zero_grad()
+            train_loss.backward()
+            opi_answer.step()
+            opi_pg.step()
+            running_loss += train_loss.item()
+
+            current_avg_last_loss = running_loss / (batch_id + 1)  # loss per batch
+
+            ans_pbar.set_description(
+                'Epoch {} / Total Epoch {} | avg loss: {:.8f}'.format(e, epoch, current_avg_last_loss), refresh=True)
+
+        ans_pbar.close()
+
+        model.backbone.eval()
+        gpf_prompt.eval()
+        model.answering.eval()
+
+        pbar = tqdm(loaders['val'], total=len(loaders['val']), ncols=100, desc=f'Epoch {e} Validation, Acc: 0., F1: 0.')
+        with torch.no_grad():
+            for batch in pbar:
+                batch = batch.to(device)
+                # Prompted Feature
+                batch.x = gpf_prompt.add(batch.x)
+                graph_emb = model.backbone(batch)
+                pred = model.answering(graph_emb)
+                pred_class = pred.argmax(dim=-1)
+
+                acc_metric.update(pred_class, batch.y)
+                f1_metric.update(pred_class, batch.y)
+                auroc_metric.update(pred, batch.y)
+
+                pbar.set_description(
+                    f'Epoch {e} Validation Acc: {acc_metric.compute():.4f}, AUROC: {auroc_metric.compute():.4f}, F1: {f1_metric.compute():.4f}',
+                    refresh=True)
+            pbar.close()
+
+        if acc_metric.compute() > best_acc:
+            best_acc = acc_metric.compute()
+            best_answering = deepcopy(model.answering)
+            best_prompt_model = deepcopy(gpf_prompt)
+
+    model.answering = best_answering if best_answering is not None else model.answering
+    gpf_prompt = best_prompt_model if best_prompt_model is not None else gpf_prompt
+
+    # test
+    model.backbone.eval()
+    model.answering.eval()
+    gpf_prompt.eval()
+
+    acc_metric.reset()
+    f1_metric.reset()
+    auroc_metric.reset()
+
+    pbar = tqdm(loaders['test'], total=len(loaders['test']), ncols=100, desc=f'Testing, Acc: 0., F1: 0.')
+    with torch.no_grad():
+        for batch in pbar:
+            batch = batch.to(device)
+            # Prompted Feature
+            batch.x = gpf_prompt.add(batch.x)
+            graph_emb = model.backbone(batch)
+            # Forward Pass
+            pred = model.answering(graph_emb)
+            pred_class = pred.argmax(dim=-1)
+
+            acc_metric.update(pred_class, batch.y)
+            f1_metric.update(pred_class, batch.y)
+            auroc_metric.update(pred, batch.y)
+
+            pbar.set_description(
+                f'Testing Acc: {acc_metric.compute():.4f}, AUROC: {auroc_metric.compute():.4f}, F1: {f1_metric.compute():.4f}',
+                refresh=True)
+        pbar.close()
+
+    return {
+        'acc': acc_metric.compute().item(),
+        'auroc': auroc_metric.compute().item(),
+        'f1': f1_metric.compute().item(),
+        'model': model.state_dict(),
+    }
+

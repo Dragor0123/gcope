@@ -38,7 +38,8 @@ def adapt(target_datasets, datasets):
         source_dataset_str = ""
 
         # 내부 루프: 데이터셋 배열에서 타겟 데이터셋을 제외한 소스 데이터셋 문자열 생성
-        source_datasets = [ds for ds in datasets if ds != target_dataset]
+        #source_datasets = [ds for ds in datasets if ds != target_dataset]
+        source_datasets = [ds for ds in datasets]
         source_dataset_str = ",".join(source_datasets)
 
         # 쉼표로 구분된 문자열에서 마지막 쉼표 제거는 필요 없음 (Python에서는 자동 처리)
@@ -52,6 +53,7 @@ def adapt(target_datasets, datasets):
         # 내부 루프: 학습률과 배치 크기 조합에 따라 미세 조정 실행
         for lr in learning_rates:
             for batch_size in batch_sizes:
+                """
                 fine_tune_cmd = [
                     'python', 'src/exec.py', '--general.func', 'adapt',
                     '--general.save_dir', f'storage/{backbone}/balanced_few_shot_fine_tune_backbone_with_rec',
@@ -66,6 +68,20 @@ def adapt(target_datasets, datasets):
                     '--adapt.finetune.learning_rate', lr,
                     '--adapt.batch_size', str(batch_size),
                     '--adapt.finetune.backbone_tuning', str(backbone_tuning)
+                ]
+                """
+                fine_tune_cmd = [
+                    'python', 'src/exec.py', '--general.func', 'adapt',
+                    '--general.save_dir', f'storage/{backbone}/balanced_few_shot_fine_tune_backbone_with_rec',
+                    '--general.few_shot', str(few_shot),
+                    '--general.reconstruct', '0.0',
+                    '--data.node_feature_dim', '100',
+                    '--data.name', target_dataset,
+                    '--adapt.method', 'gpf',
+                    '--model.backbone.model_type', backbone,
+                    '--model.saliency.model_type', 'none',
+                    '--adapt.pretrained_file', pretrained_model_path,
+                    '--adapt.batch_size', str(batch_size),
                 ]
                 try:
                     subprocess.run(fine_tune_cmd, check=True)
@@ -133,7 +149,7 @@ def ete(target_datasets, datasets):
                     continue 
 
 # 설정된 파라미터 정의
-backbone = 'gin'
+backbone = 'fagcn'
 backbone_tuning = 1
 split_method = 'RandomWalk'
 few_shot = 1
@@ -149,16 +165,17 @@ batch_sizes = [100]
 # 타겟 데이터셋 설정
 target_datasets_list = [
     #['cora', 'citeseer', 'cornell', 'chameleon', 'squirrel']
-    ['squirrel']
+    ['chameleon']
 ]
 
 # 데이터셋 배열 설정
 datasets_list = [
-    ['cora', 'citeseer', 'pubmed', 'computers', 'photo', 'wisconsin', 'texas', 'cornell', 'chameleon', 'squirrel']
+    #['cora', 'citeseer', 'pubmed', 'computers', 'photo', 'wisconsin', 'texas', 'cornell', 'chameleon', 'squirrel']
+    ['cora', 'citeseer', 'pubmed', 'computers', 'photo']
 ]
 
 for i in range(len(datasets_list)):
-    target_datasets = target_datasets_list[i]
+    target_datasets = target_datasets_list[0]
     datasets = datasets_list[i]
 
     #pretrain(target_datasets=target_datasets, datasets=datasets)
