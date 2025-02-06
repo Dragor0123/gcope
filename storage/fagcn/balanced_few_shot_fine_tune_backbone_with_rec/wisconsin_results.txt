@@ -1,0 +1,4 @@
+-------------------------------------------------
+gpfFT on All, Target Dataset: wisconsin, acc: 0.3514 ± 0.0000
+gpfFT on All, Target Dataset: wisconsin, auroc: 0.8224 ± 0.0000
+gpfFT on All, Target Dataset: wisconsin, f1: 0.3687 ± 0.0000

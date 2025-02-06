@@ -164,14 +164,16 @@ batch_sizes = [100]
 
 # 타겟 데이터셋 설정
 target_datasets_list = [
-    #['cora', 'citeseer', 'cornell', 'chameleon', 'squirrel']
-    ['citeseer']
+    #['wisconsin', 'texas', 'cora', 'citeseer', 'squirrel', 'chameleon']
+    #['pubmed']
+    ['cora']
 ]
 
 # 데이터셋 배열 설정
 datasets_list = [
     #['cora', 'citeseer', 'pubmed', 'computers', 'photo', 'wisconsin', 'texas', 'cornell', 'chameleon', 'squirrel']
     ['cora', 'citeseer', 'pubmed', 'computers', 'photo']
+
 ]
 
 for i in range(len(datasets_list)):

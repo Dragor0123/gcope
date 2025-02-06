@@ -1,0 +1,8 @@
+-------------------------------------------------
+gpfFT on All, Target Dataset: texas, acc: 0.6584 ± 0.0000
+gpfFT on All, Target Dataset: texas, auroc: 0.6976 ± 0.0000
+gpfFT on All, Target Dataset: texas, f1: 0.4877 ± 0.0000
+-------------------------------------------------
+gpfFT on All, Target Dataset: texas, acc: 0.6584 ± 0.0000
+gpfFT on All, Target Dataset: texas, auroc: 0.6975 ± 0.0000
+gpfFT on All, Target Dataset: texas, f1: 0.4877 ± 0.0000

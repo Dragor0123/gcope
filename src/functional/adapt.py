@@ -8,6 +8,9 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch_geometric.nn.inits import glorot
 
+import ast
+import re
+
 
 class GPF(nn.Module):
     def __init__(self, in_channels: int, p_num: int):
@@ -388,6 +391,7 @@ def prog(
         'model': model.state_dict(),
     }
 
+
 @param('adapt.epoch')
 @param('adapt.gpf.prompt_lr')
 @param('adapt.gpf.prompt_weight_decay')
@@ -434,6 +438,9 @@ def gpf(
     from torchmetrics import MeanMetric, Accuracy, F1Score, AUROC
     from tqdm import tqdm
     from copy import deepcopy
+    import json
+    import re
+    import ast
 
     loss_metric = MeanMetric().to(device)
     acc_metric = Accuracy(task='multiclass', num_classes=model.answering.num_class).to(device)
@@ -445,6 +452,16 @@ def gpf(
     best_answering = None
 
     node_results = []
+
+    # 역딕셔너리 생성
+    subg_file = f"subg_result/{dataset[0]}_subg_dict.txt"
+    reverse_dict = {}
+    with open(subg_file, "r") as f:
+        lines = f.readlines()
+        subg_dict = ast.literal_eval(lines[1].strip())
+        for case_type, nodes in subg_dict.items():
+            for node in nodes:
+                reverse_dict[node] = case_type
 
     for e in range(epoch):
         loss_metric.reset()
@@ -490,7 +507,19 @@ def gpf(
     f1_metric.reset()
     auroc_metric.reset()
 
+    def update_tuple_list(tuple_list, new_tuple):
+        existing_idx = None
+        for i, tup in enumerate(tuple_list):
+            if tup[0] == new_tuple[0]:
+                existing_idx = i
+                break
+        if existing_idx is not None:
+            tuple_list.pop(existing_idx)
+        tuple_list.append(new_tuple)
+        return tuple_list
+
     pbar = tqdm(loaders['test'], total=len(loaders['test']), ncols=100, desc=f'Testing, Acc: 0., F1: 0.')
+
     with torch.no_grad():
         for batch in pbar:
             batch = batch.to(device)
@@ -504,10 +533,9 @@ def gpf(
             auroc_metric.update(pred, batch.y)
 
             for node_id, (p, y) in enumerate(zip(pred, batch.y)):
-                node_acc = (p.argmax() == y).float().item()
-                node_auroc = AUROC(task="binary" if model.answering.num_class == 2 else "multiclass", num_classes=model.answering.num_class).to(device)
-                node_f1 = F1Score(task="binary" if model.answering.num_class == 2 else "multiclass", num_classes=model.answering.num_class).to(device)
-                node_results.append((node_id, node_acc, node_auroc(p.unsqueeze(0), y.unsqueeze(0)).item(), node_f1(p.unsqueeze(0), y.unsqueeze(0)).item()))
+                node_acc = int(p.argmax() == y)
+                node_case_num = int(re.search(r'\d+$', reverse_dict.get(node_id, "unknown")).group())
+                update_tuple_list(node_results, (node_id, node_case_num, node_acc))
 
             pbar.set_description(
                 f'Testing Acc: {acc_metric.compute():.4f}, AUROC: {auroc_metric.compute():.4f}, F1: {f1_metric.compute():.4f}',
@@ -516,7 +544,7 @@ def gpf(
 
     with open(f"{dataset[0]}_node.txt", "w") as f:
         for result in node_results:
-            f.write(f"idx: {result[0]}, acc: {result[1]:.4f}, auroc: {result[2]:.4f}, f1: {result[3]:.4f}\n")
+            f.write(f"idx: {result[0]}, case: {result[1]}, acc: {result[2]}\n")
 
     return {
         'acc': acc_metric.compute().item(),
@@ -524,4 +552,3 @@ def gpf(
         'f1': f1_metric.compute().item(),
         'model': model.state_dict(),
     }
-
