@@ -165,7 +165,7 @@ batch_sizes = [100]
 # 타겟 데이터셋 설정
 target_datasets_list = [
     #['cora', 'citeseer', 'cornell', 'chameleon', 'squirrel']
-    ['chameleon']
+    ['citeseer']
 ]
 
 # 데이터셋 배열 설정

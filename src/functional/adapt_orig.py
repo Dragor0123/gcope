@@ -27,7 +27,6 @@ class GPF(nn.Module):
 
         return x + p
 
-
 @param('data.name', 'dataset')
 @param('adapt.batch_size')
 @param('data.supervised.ratios')
@@ -413,6 +412,7 @@ def gpf(
     model.backbone.to(device)
     model.answering.to(device)
 
+
     model.backbone.requires_grad_(backbone_tuning)
     model.saliency.requires_grad_(saliency_tuning)
 
@@ -440,13 +440,16 @@ def gpf(
     f1_metric = F1Score(task='multiclass', num_classes=model.answering.num_class, average='macro').to(device)
     auroc_metric = AUROC(task="multiclass", num_classes=model.answering.num_class).to(device)
 
+    # load prompting data
+
+    from torch_geometric.loader import DataLoader
+
     best_acc = 0.
     best_prompt_model = None
     best_answering = None
 
-    node_results = []
-
     for e in range(epoch):
+
         loss_metric.reset()
         acc_metric.reset()
         f1_metric.reset()
@@ -457,11 +460,17 @@ def gpf(
         model.backbone.eval()
         model.answering.train()
 
+        from tqdm import tqdm
+
+        device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
         running_loss = 0.
+
         ans_pbar = tqdm(loaders['train'], total=len(loaders['train']), ncols=100,
                         desc=f'Epoch {e} / Total Epoch {epoch} Training, Loss: inf')
 
-        for batch_id, train_batch in enumerate(ans_pbar):
+        for batch_id, train_batch in enumerate(ans_pbar):  # bar2
+
             train_batch = train_batch.to(device)
             train_batch.x = gpf_prompt.add(train_batch.x)
             graph_emb = model.backbone(train_batch)
@@ -476,12 +485,45 @@ def gpf(
             opi_pg.step()
             running_loss += train_loss.item()
 
-            current_avg_last_loss = running_loss / (batch_id + 1)
+            current_avg_last_loss = running_loss / (batch_id + 1)  # loss per batch
+
             ans_pbar.set_description(
                 'Epoch {} / Total Epoch {} | avg loss: {:.8f}'.format(e, epoch, current_avg_last_loss), refresh=True)
 
         ans_pbar.close()
 
+        model.backbone.eval()
+        gpf_prompt.eval()
+        model.answering.eval()
+
+        pbar = tqdm(loaders['val'], total=len(loaders['val']), ncols=100, desc=f'Epoch {e} Validation, Acc: 0., F1: 0.')
+        with torch.no_grad():
+            for batch in pbar:
+                batch = batch.to(device)
+                # Prompted Feature
+                batch.x = gpf_prompt.add(batch.x)
+                graph_emb = model.backbone(batch)
+                pred = model.answering(graph_emb)
+                pred_class = pred.argmax(dim=-1)
+
+                acc_metric.update(pred_class, batch.y)
+                f1_metric.update(pred_class, batch.y)
+                auroc_metric.update(pred, batch.y)
+
+                pbar.set_description(
+                    f'Epoch {e} Validation Acc: {acc_metric.compute():.4f}, AUROC: {auroc_metric.compute():.4f}, F1: {f1_metric.compute():.4f}',
+                    refresh=True)
+            pbar.close()
+
+        if acc_metric.compute() > best_acc:
+            best_acc = acc_metric.compute()
+            best_answering = deepcopy(model.answering)
+            best_prompt_model = deepcopy(gpf_prompt)
+
+    model.answering = best_answering if best_answering is not None else model.answering
+    gpf_prompt = best_prompt_model if best_prompt_model is not None else gpf_prompt
+
+    # test
     model.backbone.eval()
     model.answering.eval()
     gpf_prompt.eval()
@@ -494,8 +536,10 @@ def gpf(
     with torch.no_grad():
         for batch in pbar:
             batch = batch.to(device)
+            # Prompted Feature
             batch.x = gpf_prompt.add(batch.x)
             graph_emb = model.backbone(batch)
+            # Forward Pass
             pred = model.answering(graph_emb)
             pred_class = pred.argmax(dim=-1)
 
@@ -503,20 +547,10 @@ def gpf(
             f1_metric.update(pred_class, batch.y)
             auroc_metric.update(pred, batch.y)
 
-            for node_id, (p, y) in enumerate(zip(pred, batch.y)):
-                node_acc = (p.argmax() == y).float().item()
-                node_auroc = AUROC(task="binary" if model.answering.num_class == 2 else "multiclass", num_classes=model.answering.num_class).to(device)
-                node_f1 = F1Score(task="binary" if model.answering.num_class == 2 else "multiclass", num_classes=model.answering.num_class).to(device)
-                node_results.append((node_id, node_acc, node_auroc(p.unsqueeze(0), y.unsqueeze(0)).item(), node_f1(p.unsqueeze(0), y.unsqueeze(0)).item()))
-
             pbar.set_description(
                 f'Testing Acc: {acc_metric.compute():.4f}, AUROC: {auroc_metric.compute():.4f}, F1: {f1_metric.compute():.4f}',
                 refresh=True)
-    pbar.close()
-
-    with open(f"{dataset[0]}_node.txt", "w") as f:
-        for result in node_results:
-            f.write(f"idx: {result[0]}, acc: {result[1]:.4f}, auroc: {result[2]:.4f}, f1: {result[3]:.4f}\n")
+        pbar.close()
 
     return {
         'acc': acc_metric.compute().item(),
@@ -524,4 +558,3 @@ def gpf(
         'f1': f1_metric.compute().item(),
         'model': model.state_dict(),
     }
-

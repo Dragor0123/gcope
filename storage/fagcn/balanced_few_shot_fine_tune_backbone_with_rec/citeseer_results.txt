@@ -2,3 +2,7 @@
 gpfFT on All, Target Dataset: citeseer, acc: 0.5928 ± 0.0185
 gpfFT on All, Target Dataset: citeseer, auroc: 0.8323 ± 0.0121
 gpfFT on All, Target Dataset: citeseer, f1: 0.5608 ± 0.0193
+-------------------------------------------------
+gpfFT on All, Target Dataset: citeseer, acc: 0.5537 ± 0.0000
+gpfFT on All, Target Dataset: citeseer, auroc: 0.8261 ± 0.0000
+gpfFT on All, Target Dataset: citeseer, f1: 0.5010 ± 0.0000
