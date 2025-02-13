@@ -26,7 +26,6 @@ class FAGCN(torch.nn.Module):
 
     @param('general.reconstruct')
     def forward(self, data, reconstruct):
-
         x = data.x if data.x is not None else data.feat
         edge_index, batch = data.edge_index, data.batch
 
@@ -37,12 +36,20 @@ class FAGCN(torch.nn.Module):
         for i in range(self.layer_num):
             h = self.layers[i](h, raw, edge_index)
         h = self.t2(h)
-        graph_emb = self.global_pool(h, batch)
 
-        if(reconstruct==0.0):
-            return graph_emb
-        else:
-            return graph_emb, h
+        if hasattr(data, 'batch_size'):  # NeighborLoader로부터의 입력인 경우
+            # 중심 노드의 특성만 선택
+            node_emb = h[:data.batch_size]
+            if reconstruct == 0.0:
+                return node_emb
+            else:
+                return node_emb, h
+        else:  # 기존 DataLoader로부터의 입력인 경우 (validation/test)
+            graph_emb = self.global_pool(h, batch)
+            if reconstruct == 0.0:
+                return graph_emb
+            else:
+                return graph_emb, h
 
 
 from fastargs.decorators import param
