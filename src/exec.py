@@ -100,7 +100,7 @@ Section('pretrain', 'Pretraining Configs').enable_if(
 Section('adapt', 'Adaptation Configs').enable_if(
     lambda cfg: cfg['general.func'] == 'adapt'
 ).params(
-    repeat_times = Param(int, default=1), #10
+    repeat_times = Param(int, default=10),
     method = Param(OneOf(['finetune', 'prog', 'gpf']), default='finetune'),
     pretrained_file = Param(File(), required=True,default='storage/tmp/pretrained_model.pt'),
     epoch = Param(int, default=100),
@@ -156,7 +156,7 @@ Section('ete', 'End-to-End Training Configs').enable_if(
     batch_size = Param(int, default=10),
     learning_rate = Param(float, default=1e-4),
     weight_decay = Param(float, default=1e-5),
-    repeat_times = Param(int, default=1),
+    repeat_times = Param(int, default=10),
 )
 
 

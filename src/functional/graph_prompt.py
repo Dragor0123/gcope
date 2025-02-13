@@ -20,6 +20,4 @@ class GPF(nn.Module):
         score = self.a(x)
         weight = F.softmax(score, dim=1)
         p = weight.mm(self.p_list)
-
         return x + p
-

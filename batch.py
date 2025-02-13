@@ -1,8 +1,8 @@
 import os
 import subprocess
 
-def pretrain(target_datasets, datasets): 
-        # 외부 루프: 타겟 데이터셋 반복
+def pretrain(target_datasets, datasets):
+    # 외부 루프: 타겟 데이터셋 반복
     for target_dataset in target_datasets:
         source_dataset_str = ""
 
@@ -53,23 +53,6 @@ def adapt(target_datasets, datasets):
         # 내부 루프: 학습률과 배치 크기 조합에 따라 미세 조정 실행
         for lr in learning_rates:
             for batch_size in batch_sizes:
-                """
-                fine_tune_cmd = [
-                    'python', 'src/exec.py', '--general.func', 'adapt',
-                    '--general.save_dir', f'storage/{backbone}/balanced_few_shot_fine_tune_backbone_with_rec',
-                    '--general.few_shot', str(few_shot),
-                    '--general.reconstruct', '0.0',
-                    '--data.node_feature_dim', '100',
-                    '--data.name', target_dataset,
-                    '--adapt.method', 'finetune',
-                    '--model.backbone.model_type', backbone,
-                    '--model.saliency.model_type', 'none',
-                    '--adapt.pretrained_file', pretrained_model_path,
-                    '--adapt.finetune.learning_rate', lr,
-                    '--adapt.batch_size', str(batch_size),
-                    '--adapt.finetune.backbone_tuning', str(backbone_tuning)
-                ]
-                """
                 fine_tune_cmd = [
                     'python', 'src/exec.py', '--general.func', 'adapt',
                     '--general.save_dir', f'storage/{backbone}/balanced_few_shot_fine_tune_backbone_with_rec',
@@ -160,12 +143,8 @@ learning_rates = ['1e-2']
 # 배치 크기 배열 설정
 batch_sizes = [100]
 
-# ['cora', 'citeseer', 'pubmed', 'computers', 'photo', 'wisconsin', 'texas', 'cornell', 'chameleon', 'squirrel']
-
 # 타겟 데이터셋 설정
 target_datasets_list = [
-    #['wisconsin', 'texas', 'cora', 'citeseer', 'squirrel', 'chameleon']
-    #['pubmed']
     ['cora']
 ]
 

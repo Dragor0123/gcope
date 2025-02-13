@@ -10,25 +10,7 @@ from torch_geometric.nn.inits import glorot
 
 import ast
 import re
-
-
-class GPF(nn.Module):
-    def __init__(self, in_channels: int, p_num: int):
-        super(GPF, self).__init__()
-        self.p_list = nn.Parameter(torch.Tensor(p_num, in_channels))
-        self.a = nn.Linear(in_channels, p_num)
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        glorot(self.p_list)
-        self.a.reset_parameters()
-
-    def add(self, x: Tensor):
-        score = self.a(x)
-        weight = F.softmax(score, dim=1)
-        p = weight.mm(self.p_list)
-
-        return x + p
+from .graph_prompt import GPF
 
 
 @param('data.name', 'dataset')
@@ -416,31 +398,23 @@ def gpf(
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     model.backbone.to(device)
     model.answering.to(device)
-
     model.backbone.requires_grad_(backbone_tuning)
     model.saliency.requires_grad_(saliency_tuning)
-
     # GPF Prompt 초기화
     gpf_prompt = GPF(in_channels=loaders['train'].dataset[0].x.size(-1), p_num=prompt_basis_num).to(device)
-
     opi_pg = torch.optim.Adam(
         gpf_prompt.parameters(),
         lr=prompt_lr,
         weight_decay=prompt_weight_decay,
     )
-
     opi_answer = torch.optim.Adam(
         model.answering.parameters(),
         lr=ans_lr,
         weight_decay=ans_weight_decay,
     )
-
     from torchmetrics import MeanMetric, Accuracy, F1Score, AUROC
     from tqdm import tqdm
     from copy import deepcopy
-    import json
-    import re
-    import ast
 
     loss_metric = MeanMetric().to(device)
     acc_metric = Accuracy(task='multiclass', num_classes=model.answering.num_class).to(device)
@@ -450,25 +424,13 @@ def gpf(
     best_acc = 0.
     best_prompt_model = None
     best_answering = None
-
-    node_results = []
-
-    # 역딕셔너리 생성
-    subg_file = f"subg_result/{dataset[0]}_subg_dict.txt"
-    reverse_dict = {}
-    with open(subg_file, "r") as f:
-        lines = f.readlines()
-        subg_dict = ast.literal_eval(lines[1].strip())
-        for case_type, nodes in subg_dict.items():
-            for node in nodes:
-                reverse_dict[node] = case_type
+    best_backbone = None
 
     for e in range(epoch):
         loss_metric.reset()
         acc_metric.reset()
         f1_metric.reset()
         auroc_metric.reset()
-
         print(("{}/{} frozen gnn | *tune prompt and tune answering function...".format(e, epoch)))
         gpf_prompt.train()
         model.backbone.eval()
@@ -477,13 +439,11 @@ def gpf(
         running_loss = 0.
         ans_pbar = tqdm(loaders['train'], total=len(loaders['train']), ncols=100,
                         desc=f'Epoch {e} / Total Epoch {epoch} Training, Loss: inf')
-
         for batch_id, train_batch in enumerate(ans_pbar):
             train_batch = train_batch.to(device)
             train_batch.x = gpf_prompt.add(train_batch.x)
             graph_emb = model.backbone(train_batch)
             pred = model.answering(graph_emb)
-
             train_loss = torch.nn.functional.cross_entropy(pred, train_batch.y)
 
             opi_answer.zero_grad()
@@ -491,60 +451,68 @@ def gpf(
             train_loss.backward()
             opi_answer.step()
             opi_pg.step()
-            running_loss += train_loss.item()
 
-            current_avg_last_loss = running_loss / (batch_id + 1)
+            loss_metric.update(train_loss.detach(), train_batch.num_graphs)
             ans_pbar.set_description(
-                'Epoch {} / Total Epoch {} | avg loss: {:.8f}'.format(e, epoch, current_avg_last_loss), refresh=True)
-
+                'Epoch {} / Total Epoch {} | avg loss: {:.8f}'.format(e, epoch, loss_metric.compute()), refresh=True)
         ans_pbar.close()
 
+        model.backbone.eval()
+        gpf_prompt.eval()
+        model.answering.eval()
+        pbar = tqdm(loaders['val'], total=len(loaders['val']), ncols=100, desc=f'Epoch {e} Validation, Acc: 0., F1: 0.')
+        with torch.no_grad():
+            for batch in pbar:
+                batch = batch.to(device)
+                # Prompted Feature
+                batch.x = gpf_prompt.add(batch.x)
+                graph_emb = model.backbone(batch)
+                pred = model.answering(graph_emb)
+                pred_class = pred.argmax(dim=-1)
+                acc_metric.update(pred_class, batch.y)
+                f1_metric.update(pred_class, batch.y)
+                auroc_metric.update(pred, batch.y)  # 직접 answering module의 출력 사용
+                pbar.set_description(
+                    f'Epoch {e} Validation Acc: {acc_metric.compute():.4f}, AUROC: {auroc_metric.compute():.4f}, F1: {f1_metric.compute():.4f}',
+                    refresh=True)
+            pbar.close()
+
+            # Validation 직후 best model 체크 및 저장
+            if acc_metric.compute() > best_acc:
+                best_acc = acc_metric.compute()
+                best_answering = deepcopy(model.answering)
+                best_prompt_model = deepcopy(gpf_prompt)
+                best_backbone = deepcopy(model.backbone)
+
+    # Validation 완료 후 best model 복원
+    model.backbone = best_backbone if best_backbone is not None else model.backbone
+    model.answering = best_answering if best_answering is not None else model.answering
+    gpf_prompt = best_prompt_model if best_prompt_model is not None else gpf_prompt
+
+    # test
     model.backbone.eval()
     model.answering.eval()
     gpf_prompt.eval()
-
     acc_metric.reset()
     f1_metric.reset()
     auroc_metric.reset()
-
-    def update_tuple_list(tuple_list, new_tuple):
-        existing_idx = None
-        for i, tup in enumerate(tuple_list):
-            if tup[0] == new_tuple[0]:
-                existing_idx = i
-                break
-        if existing_idx is not None:
-            tuple_list.pop(existing_idx)
-        tuple_list.append(new_tuple)
-        return tuple_list
-
     pbar = tqdm(loaders['test'], total=len(loaders['test']), ncols=100, desc=f'Testing, Acc: 0., F1: 0.')
 
     with torch.no_grad():
         for batch in pbar:
             batch = batch.to(device)
+            # Prompted Feature
             batch.x = gpf_prompt.add(batch.x)
             graph_emb = model.backbone(batch)
             pred = model.answering(graph_emb)
             pred_class = pred.argmax(dim=-1)
-
             acc_metric.update(pred_class, batch.y)
             f1_metric.update(pred_class, batch.y)
-            auroc_metric.update(pred, batch.y)
-
-            for node_id, (p, y) in enumerate(zip(pred, batch.y)):
-                node_acc = int(p.argmax() == y)
-                node_case_num = int(re.search(r'\d+$', reverse_dict.get(node_id, "unknown")).group())
-                update_tuple_list(node_results, (node_id, node_case_num, node_acc))
-
+            auroc_metric.update(pred, batch.y)  # 직접 answering module의 출력 사용
             pbar.set_description(
                 f'Testing Acc: {acc_metric.compute():.4f}, AUROC: {auroc_metric.compute():.4f}, F1: {f1_metric.compute():.4f}',
                 refresh=True)
-    pbar.close()
-
-    with open(f"{dataset[0]}_node.txt", "w") as f:
-        for result in node_results:
-            f.write(f"idx: {result[0]}, case: {result[1]}, acc: {result[2]}\n")
+        pbar.close()
 
     return {
         'acc': acc_metric.compute().item(),

@@ -1,0 +1,19 @@
+# ['cora', 'citeseer', 'pubmed', 'computers', 'photo', 'wisconsin', 'texas', 'cornell', 'chameleon', 'squirrel']
+
+                """
+                fine_tune_cmd = [
+                    'python', 'src/exec.py', '--general.func', 'adapt',
+                    '--general.save_dir', f'storage/{backbone}/balanced_few_shot_fine_tune_backbone_with_rec',
+                    '--general.few_shot', str(few_shot),
+                    '--general.reconstruct', '0.0',
+                    '--data.node_feature_dim', '100',
+                    '--data.name', target_dataset,
+                    '--adapt.method', 'finetune',
+                    '--model.backbone.model_type', backbone,
+                    '--model.saliency.model_type', 'none',
+                    '--adapt.pretrained_file', pretrained_model_path,
+                    '--adapt.finetune.learning_rate', lr,
+                    '--adapt.batch_size', str(batch_size),
+                    '--adapt.finetune.backbone_tuning', str(backbone_tuning)
+                ]
+                """
